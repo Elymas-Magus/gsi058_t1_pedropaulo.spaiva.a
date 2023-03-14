@@ -61,6 +61,4 @@ class Resizor:
         self.result = newImage
 
     def showResult(self):
-        imgRGB = cv2.cvtColor(self.result, cv2.COLOR_BGR2RGB)
-        # plt.imshow(imgRGB)
-        plt.imshow(imgRGB)
+        plt.imshow(self.result)
