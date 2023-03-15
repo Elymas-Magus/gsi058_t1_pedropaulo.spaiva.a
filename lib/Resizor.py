@@ -104,7 +104,7 @@ class GrayImageResizor:
         if self.debug:
             self.__log('saving image ...')
 
-        plt.savefig(filename, pad_inches=0, bbox_inches='tight')
+        plt.savefig(filename, pad_inches = 0, bbox_inches = 'tight')
 
         if mode == 'sync':
             plt.show()
