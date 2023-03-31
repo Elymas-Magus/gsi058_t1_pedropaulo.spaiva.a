@@ -9,7 +9,10 @@ def getLocalTime():
     return time.strftime("%d/%m/%Y, %H:%M:%S", named_tuple)
 
 class GrayImageManipulator:
-    def __init__(self, path, quantization = 8, debug = False) -> None:
+    BLACK = 0
+    WHITE = 255
+
+    def __init__(self, path = '', quantization = 8, debug = False) -> None:
         self.path = path
         self.quantization = quantization
         self.debug = debug
@@ -20,7 +23,7 @@ class GrayImageManipulator:
         print('[%s] %s: ' % (getLocalTime(), content), *args)
     
     def logImageSize(self):
-        self.log('Tamanho da imagem', self.image.shape)
+        self.log('Image size', self.image.shape)
 
     def disableDebug(self) -> None:
         self.debug = False
@@ -47,25 +50,133 @@ class GrayImageManipulator:
         image = cv2.imread(self.path, cv2.IMREAD_GRAYSCALE)
 
         if not path.isfile(self.path):
-            raise TypeError('O caminho não corresponde a um arquivo')
+            raise TypeError('The path does not match any file')
 
         if image is None:
-            raise TypeError('O caminho não corresponde a uma imagem')
+            raise TypeError('The path does not match any image')
         
         self.image = image
 
     def show(self, mode = 'sync') -> None:
-        if self.image == None:
+        if self.image is None:
             self.configImage()
             
             if self.debug:
                 self.logImageSize()
             
-        self.showImage(self.image, mode = mode)
+        self.showImage(self.image, mode = mode)    
+    
+    def requantize(self, newQuantization, condition = None) -> None:
+        if self.image is None:
+            self.configImage()
+
+        if self.quantization < newQuantization:
+            raise ValueError('The new quantization must be less than: %s' % self.quantization)
+
+        self.newQuantization = newQuantization
+
+        if self.debug:
+            self.log('New quantization', 2**newQuantization)
+            self.logImageSize()
+
+        if condition is None:
+            newImage = np.floor((self.image / (2**(self.quantization - newQuantization))))
+            self.result = newImage / (2**(newQuantization)-1) * 255
+        else:
+            self.result = np.zeros(self.image.shape)
+            height, width = self.image.shape
+            for i in range(0, height):
+                for j in range(0, width):
+                    self.result[i][j] = condition(self.image[i][j])
+                
+    def binarify(self, condition = None):
+        self.requantize(1, condition)
+    
+    def identifyComponents(self, qcondition):
+        if self.image is None:
+            self.configImage()
+
+        labeledImage = np.zeros(self.image.shape)
+        self.qcondition = qcondition
+        self.componentsNum = self.labeler(labeledImage, 1)
+
+        self.result = labeledImage * 255 / self.componentsNum
+
+    def labeler(self, labeledImage, label):
+        height, width = self.image.shape
+        neighbors = []
+        point = current = {}
+        for i in range(1, height - 1):
+            for j in range(1, width - 1):
+                point = { 'x': i, 'y': j }
+
+                if self.ableToLabel(self.image, labeledImage, point):
+                    labeledImage[i][j] = label
+
+                    # Empilha o ponto atual da imagem
+                    neighbors.append(point)
+                    while len(neighbors) > 0:
+                        # desempilha os visinhos
+                        current = neighbors.pop()
+
+                        point = {
+                            'x': current['x'] - 1,
+                            'y': current['y']
+                        }
+
+                        # procura por vizinhos acima que respeitam a condição Q
+                        self.labelNeighbors(labeledImage, point, neighbors, label)
+
+                        point = {
+                            'x': current['x'] + 1,
+                            'y': current['y'],
+                        }
+
+                        # procura por vizinhos abaixo que respeitam a condição Q
+                        self.labelNeighbors(labeledImage, point, neighbors, label)
+
+                        point = {
+                            'x': current['x'],
+                            'y': current['y'] - 1,
+                        }
+
+                        # procura por vizinhos a esquerda que respeitam a condição Q
+                        self.labelNeighbors(labeledImage, point, neighbors, label)
+
+                        point = {
+                            'x': current['x'],
+                            'y': current['y'] + 1,
+                        }
+
+                        # procura por vizinhos a direita que respeitam a condição Q
+                        self.labelNeighbors(labeledImage, point, neighbors, label)
+                    label += 1
+
+        return label
+
+
+    def labelNeighbors(self, labeledImage, point, neighbors, label):
+        if self.ableToLabel(self.image, labeledImage, point):
+            labeledImage[point['x']][point['y']] = label
+            neighbors.append(point)
+
+    def colorCriterion(self, image, point):
+        height, width = image.shape
+        return point['x'] >= 0 \
+            and point['y'] >= 0 \
+            and point['x'] < height \
+            and point['y'] < width \
+            and self.qcondition(image[point['x']][point['y']])
+
+    def unlabeled(self, labeledImage, point):
+        return labeledImage[point['x']][point['y']] == 0
+
+    def ableToLabel(self, image, labeledImage, point):
+        return self.colorCriterion(image, point) and self.unlabeled(labeledImage, point)
 
     def showImage(self, image, cmap = 'gray', mode = 'sync') -> None:
         ax = plt.subplots()[1]
-        ax.imshow(image, cmap = cmap, vmin = 0, vmax = 255)
+        ax.imshow(image, cmap = cmap, vmin = GrayImageManipulator.BLACK, vmax = GrayImageManipulator.WHITE)
 
         if self.debug:
             self.log('ploting image ...')
@@ -81,7 +192,7 @@ class GrayImageManipulator:
         self.validateResult()
         
         ax = plt.subplots()[1]
-        ax.imshow(self.result, cmap = cmap, vmin = 0, vmax = 255)
+        ax.imshow(self.result, cmap = cmap, vmin = GrayImageManipulator.BLACK, vmax = GrayImageManipulator.WHITE)
 
         if self.debug:
             self.log('saving image ...')
